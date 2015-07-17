@@ -247,7 +247,6 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
      * https://developers.google.com/glass/develop/gdk/camera#images
      */
     private void processPictureWhenReady(final String picturePath, final int requestCode, final int resultCode, final Intent intent) {
-        Log.d(LOG_TAG, "[TK] inside processPictureWhenReady");
     	final File pictureFile = new File(picturePath);
 
         if (pictureFile.exists()) {
@@ -257,9 +256,6 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
         	Log.d(LOG_TAG, "[TK] imageUri: " + this.imageUri);
         	onActivityResult2(requestCode, resultCode, intent);
         } else {
-
-        	Log.d(LOG_TAG, "[TK] pictureFile does not exists yet..");
-
             // The file does not exist yet. Before starting the file observer, you
             // can update your UI to let the user know that the application is
             // waiting for the picture (for example, by displaying the thumbnail
@@ -274,13 +270,11 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
 
                 @Override
                 public void onEvent(int event, String path) {
-                	Log.d(LOG_TAG, "[TK] inside onEvent...");
                 	if (!isFileWritten) {
                         // For safety, make sure that the file that was created in
                         // the directory is actually the one that we're expecting.
                         File affectedFile = new File(parentDirectory, path);
                         isFileWritten = affectedFile.equals(pictureFile);
-                        Log.d(LOG_TAG, "[TK] isFileWritten is "+isFileWritten);
                         if (isFileWritten) {
                             stopWatching();
 
@@ -430,7 +424,6 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
      * @param intent            An Intent, which can return result data to the caller (various data can be attached to Intent "extras").
      */
     private void processResultFromCamera(int destType, Intent intent) throws IOException {
-        Log.d(LOG_TAG, "[TK] inside processResultFromCamera(destType, intent)");
     	int rotate = 0;
 
         // Create an ExifHelper to save the exif data that is lost during compression
@@ -705,11 +698,9 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
      * @param intent            An Intent, which can return result data to the caller (various data can be attached to Intent "extras").
      */
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
-    	Log.d(LOG_TAG, "[EJ] onActivityResult");
     	Thread.currentThread().dumpStack();
     	if (isRunningOnGlass()) {
     		String picturePath = intent.getStringExtra(Intents.EXTRA_PICTURE_FILE_PATH);
-    		Log.d(LOG_TAG, "[TK] before processPictureWhenReady, picturePath: " + picturePath);
     		processPictureWhenReady(picturePath, requestCode, resultCode, intent);
     	} else {
     		onActivityResult2(requestCode, resultCode, intent);
@@ -717,7 +708,6 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
     }
 
     public void onActivityResult2(int requestCode, int resultCode, Intent intent) {
-    	Log.d(LOG_TAG, "[EJ] onActivityResult2");
         // Get src and dest types from request code for a Camera Activity
         int srcType = (requestCode / 16) - 1;
         int destType = (requestCode % 16) - 1;
@@ -749,17 +739,14 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
         // If CAMERA
         else if (srcType == CAMERA) {
             // If image available
-        	Log.d(LOG_TAG, "[TK] srcType == CAMERA");
             if (resultCode == Activity.RESULT_OK) {
                 try {
                     if(this.allowEdit)
                     {
-                    	Log.d(LOG_TAG, "[TK] this.allowEdit");
                     	Uri tmpFile = Uri.fromFile(new File(getTempDirectoryPath(), ".Pic.jpg"));
                         performCrop(tmpFile, destType, intent);
                     }
                     else {
-                    	Log.d(LOG_TAG, "[TK] processResultFromCamera(destType, intent)");
                         this.processResultFromCamera(destType, intent);
                     }
                 } catch (IOException e) {
@@ -1118,10 +1105,8 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
      */
     private Uri whichContentStore() {
         if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
-            Log.d(LOG_TAG, "[TK] storage state: " + android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
         	return android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
         } else {
-        	Log.d(LOG_TAG, "[TK] storage state: " + android.provider.MediaStore.Images.Media.INTERNAL_CONTENT_URI);
             return android.provider.MediaStore.Images.Media.INTERNAL_CONTENT_URI;
         }
     }

@@ -50,11 +50,15 @@ import android.media.MediaScannerConnection;
 import android.media.MediaScannerConnection.MediaScannerConnectionClient;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Environment;
+import android.os.FileObserver;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.Log;
 import android.content.pm.PackageManager;
+
+import com.google.android.glass.content.Intents;
 /**
  * This class launches the camera view, allows the user to take a picture, closes the camera view,
  * and returns the captured image.  When the camera view is closed, the screen displayed before
@@ -79,7 +83,7 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
     private static final String GET_PICTURE = "Get Picture";
     private static final String GET_VIDEO = "Get Video";
     private static final String GET_All = "Get All";
-    
+
     private static final String LOG_TAG = "CameraLauncher";
 
     //Where did this come from?
@@ -159,11 +163,11 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
                 callbackContext.sendPluginResult(r);
                 return true;
             }
-             
+
             PluginResult r = new PluginResult(PluginResult.Status.NO_RESULT);
             r.setKeepCallback(true);
             callbackContext.sendPluginResult(r);
-            
+
             return true;
         }
         return false;
@@ -212,6 +216,11 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
         // Let's use the intent and see what happens
         Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
 
+        // See if we are running on Google Glass
+        if (isRunningOnGlass()) {
+        	LOG.d(LOG_TAG, "[TK ]We're walking on Glass, EXTRA_OUTPUT not supported");
+        }
+
         // Specify file so that large image is captured and returned
         File photo = createCaptureFile(encodingType);
         intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, Uri.fromFile(photo));
@@ -233,6 +242,64 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
 //        else
 //            LOG.d(LOG_TAG, "ERROR: You must use the CordovaInterface for this to work correctly. Please implement it in your activity");
     }
+
+    /*
+     * https://developers.google.com/glass/develop/gdk/camera#images
+     */
+    private void processPictureWhenReady(final String picturePath, final int requestCode, final int resultCode, final Intent intent) {
+        Log.d(LOG_TAG, "[TK] inside processPictureWhenReady");
+    	final File pictureFile = new File(picturePath);
+
+        if (pictureFile.exists()) {
+            // The picture is ready; process it.
+        	Log.d(LOG_TAG, "[TK] pictureFile exists");
+        	this.imageUri = Uri.fromFile(pictureFile);
+        	Log.d(LOG_TAG, "[TK] imageUri: " + this.imageUri);
+        	onActivityResult2(requestCode, resultCode, intent);
+        } else {
+
+        	Log.d(LOG_TAG, "[TK] pictureFile does not exists yet..");
+
+            // The file does not exist yet. Before starting the file observer, you
+            // can update your UI to let the user know that the application is
+            // waiting for the picture (for example, by displaying the thumbnail
+            // image and a progress indicator).
+
+            final File parentDirectory = pictureFile.getParentFile();
+            FileObserver observer = new FileObserver(parentDirectory.getPath(),
+                    FileObserver.CLOSE_WRITE | FileObserver.MOVED_TO) {
+                // Protect against additional pending events after CLOSE_WRITE
+                // or MOVED_TO is handled.
+                private boolean isFileWritten;
+
+                @Override
+                public void onEvent(int event, String path) {
+                	Log.d(LOG_TAG, "[TK] inside onEvent...");
+                	if (!isFileWritten) {
+                        // For safety, make sure that the file that was created in
+                        // the directory is actually the one that we're expecting.
+                        File affectedFile = new File(parentDirectory, path);
+                        isFileWritten = affectedFile.equals(pictureFile);
+                        Log.d(LOG_TAG, "[TK] isFileWritten is "+isFileWritten);
+                        if (isFileWritten) {
+                            stopWatching();
+
+                            // Now that the file is ready, recursively call
+                            // processPictureWhenReady again (on the UI thread).
+                            cordova.getActivity().runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    processPictureWhenReady(picturePath, requestCode, resultCode, intent);   
+                                }
+                            });
+                        }
+                    }
+                }
+            };
+            observer.startWatching();
+        }
+    }
+
 
     /**
      * Create a file in the applications temporary directory based upon the supplied encoding.
@@ -260,7 +327,7 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
      * @param quality           Compression quality hint (0-100: 0=low quality & high compression, 100=compress of max quality)
      * @param srcType           The album to get image from.
      * @param returnType        Set the type of image to return.
-     * @param encodingType 
+     * @param encodingType
      */
     // TODO: Images selected from SDCARD don't display correctly, but from CAMERA ALBUM do!
     // TODO: Images from kitkat filechooser not going into crop function
@@ -311,7 +378,7 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
 
   /**
    * Brings up the UI to perform crop on passed image URI
-   * 
+   *
    * @param picUri
    */
   private void performCrop(Uri picUri, int destType, Intent cameraIntent) {
@@ -363,7 +430,8 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
      * @param intent            An Intent, which can return result data to the caller (various data can be attached to Intent "extras").
      */
     private void processResultFromCamera(int destType, Intent intent) throws IOException {
-        int rotate = 0;
+        Log.d(LOG_TAG, "[TK] inside processResultFromCamera(destType, intent)");
+    	int rotate = 0;
 
         // Create an ExifHelper to save the exif data that is lost during compression
         ExifHelper exif = new ExifHelper();
@@ -403,7 +471,7 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
                 // Try to get the bitmap from intent.
                 bitmap = (Bitmap)intent.getExtras().get("data");
             }
-            
+
             // Double-check the bitmap.
             if (bitmap == null) {
                 Log.d(LOG_TAG, "I either have a null image path or bitmap");
@@ -436,7 +504,7 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
             }
 
             // If all this is true we shouldn't compress the image.
-            if (this.targetHeight == -1 && this.targetWidth == -1 && this.mQuality == 100 && 
+            if (this.targetHeight == -1 && this.targetWidth == -1 && this.mQuality == 100 &&
                     !this.correctOrientation) {
                 writeUncompressedImage(uri);
 
@@ -627,7 +695,7 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
             }
         }
     }
-    
+
     /**
      * Called when the camera view exits.
      *
@@ -637,7 +705,19 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
      * @param intent            An Intent, which can return result data to the caller (various data can be attached to Intent "extras").
      */
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
+    	Log.d(LOG_TAG, "[EJ] onActivityResult");
+    	Thread.currentThread().dumpStack();
+    	if (isRunningOnGlass()) {
+    		String picturePath = intent.getStringExtra(Intents.EXTRA_PICTURE_FILE_PATH);
+    		Log.d(LOG_TAG, "[TK] before processPictureWhenReady, picturePath: " + picturePath);
+    		processPictureWhenReady(picturePath, requestCode, resultCode, intent);
+    	} else {
+    		onActivityResult2(requestCode, resultCode, intent);
+    	}
+    }
 
+    public void onActivityResult2(int requestCode, int resultCode, Intent intent) {
+    	Log.d(LOG_TAG, "[EJ] onActivityResult2");
         // Get src and dest types from request code for a Camera Activity
         int srcType = (requestCode / 16) - 1;
         int destType = (requestCode % 16) - 1;
@@ -669,14 +749,17 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
         // If CAMERA
         else if (srcType == CAMERA) {
             // If image available
+        	Log.d(LOG_TAG, "[TK] srcType == CAMERA");
             if (resultCode == Activity.RESULT_OK) {
                 try {
                     if(this.allowEdit)
                     {
-                        Uri tmpFile = Uri.fromFile(new File(getTempDirectoryPath(), ".Pic.jpg"));
+                    	Log.d(LOG_TAG, "[TK] this.allowEdit");
+                    	Uri tmpFile = Uri.fromFile(new File(getTempDirectoryPath(), ".Pic.jpg"));
                         performCrop(tmpFile, destType, intent);
                     }
                     else {
+                    	Log.d(LOG_TAG, "[TK] processResultFromCamera(destType, intent)");
                         this.processResultFromCamera(destType, intent);
                     }
                 } catch (IOException e) {
@@ -825,7 +908,7 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
      *
      * @param imagePath
      * @return
-     * @throws IOException 
+     * @throws IOException
      */
     private Bitmap getScaledBitmap(String imageUrl) throws IOException {
         // If no new width or height were specified return the original bitmap
@@ -863,13 +946,13 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
                 }
             }
         }
-        
+
         //CB-2292: WTF? Why is the width null?
         if(options.outWidth == 0 || options.outHeight == 0)
         {
             return null;
         }
-        
+
         // determine the correct aspect ratio
         int[] widthHeight = calculateAspectRatio(options.outWidth, options.outHeight);
 
@@ -1035,8 +1118,10 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
      */
     private Uri whichContentStore() {
         if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
-            return android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+            Log.d(LOG_TAG, "[TK] storage state: " + android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        	return android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
         } else {
+        	Log.d(LOG_TAG, "[TK] storage state: " + android.provider.MediaStore.Images.Media.INTERNAL_CONTENT_URI);
             return android.provider.MediaStore.Images.Media.INTERNAL_CONTENT_URI;
         }
     }
@@ -1093,5 +1178,17 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
 
     public void onScanCompleted(String path, Uri uri) {
         this.conn.disconnect();
+    }
+
+    /** Determine whethe the code is runnong on Google Glass
+     * @return True if and only if Manufacturer is Google and Model begins with Glass
+     */
+    public boolean isRunningOnGlass() {
+        boolean result;
+
+        result = "Google".equalsIgnoreCase(Build.MANUFACTURER) && Build.MODEL.startsWith("Glass");
+        Log.d(LOG_TAG, "Running on Glass = " + result + ", Manufacturer is " + Build.MANUFACTURER + ", Model is " + Build.MODEL);
+
+        return result;
     }
 }
